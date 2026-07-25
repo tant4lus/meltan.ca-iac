@@ -12,10 +12,10 @@
 # managed resources differ from modules/static-site-bucket, adjust the
 # permission policy built in create_role_and_policy.
 #
-# Everything here is idempotent-ish (uses `|| true` on the provider create in
-# case it partially ran before) but re-running create-role/put-role-policy on
-# an existing role is safe: create-role will just error harmlessly if the role
-# already exists, and put-role-policy always overwrites in place.
+# Safe to re-run: the OIDC provider and each role are only created if they
+# don't already exist (existing roles get their trust policy refreshed
+# instead), and put-role-policy always overwrites the permission policy in
+# place.
 
 set -euo pipefail
 
@@ -31,23 +31,33 @@ TFC_PROJECT="meltan.ca"
 WORKDIR="$(mktemp -d)"
 echo "Writing policy documents to: ${WORKDIR}"
 
-echo "==> Fetching OIDC server certificate thumbprint for ${TFC_HOSTNAME}"
-THUMBPRINT="$(
-  openssl s_client -servername "${TFC_HOSTNAME}" -showcerts -connect "${TFC_HOSTNAME}:443" </dev/null 2>/dev/null \
-    | openssl x509 -fingerprint -sha1 -noout \
-    | sed 's/.*=//; s/://g' \
-    | tr 'A-Z' 'a-z'
-)"
-echo "    thumbprint: ${THUMBPRINT}"
-
-echo "==> Creating IAM OIDC identity provider for ${OIDC_URL}"
-OIDC_PROVIDER_ARN=$(aws iam create-open-id-connect-provider \
+echo "==> Checking for an existing IAM OIDC identity provider for ${OIDC_URL}"
+OIDC_PROVIDER_ARN=$(aws iam list-open-id-connect-providers \
   --profile "${PROFILE}" \
-  --url "${OIDC_URL}" \
-  --client-id-list "${AUDIENCE}" \
-  --thumbprint-list "${THUMBPRINT}" \
-  --query 'OpenIDConnectProviderArn' --output text)
-echo "    provider ARN: ${OIDC_PROVIDER_ARN}"
+  --query "OpenIDConnectProviderList[?ends_with(Arn, ':oidc-provider/${TFC_HOSTNAME}')].Arn | [0]" \
+  --output text)
+
+if [ -z "${OIDC_PROVIDER_ARN}" ] || [ "${OIDC_PROVIDER_ARN}" = "None" ]; then
+  echo "==> Fetching OIDC server certificate thumbprint for ${TFC_HOSTNAME}"
+  THUMBPRINT="$(
+    openssl s_client -servername "${TFC_HOSTNAME}" -showcerts -connect "${TFC_HOSTNAME}:443" </dev/null 2>/dev/null \
+      | openssl x509 -fingerprint -sha1 -noout \
+      | sed 's/.*=//; s/://g' \
+      | tr 'A-Z' 'a-z'
+  )"
+  echo "    thumbprint: ${THUMBPRINT}"
+
+  echo "==> Creating IAM OIDC identity provider for ${OIDC_URL}"
+  OIDC_PROVIDER_ARN=$(aws iam create-open-id-connect-provider \
+    --profile "${PROFILE}" \
+    --url "${OIDC_URL}" \
+    --client-id-list "${AUDIENCE}" \
+    --thumbprint-list "${THUMBPRINT}" \
+    --query 'OpenIDConnectProviderArn' --output text)
+  echo "    provider ARN: ${OIDC_PROVIDER_ARN}"
+else
+  echo "    already exists: ${OIDC_PROVIDER_ARN}"
+fi
 
 create_role_and_policy() {
   local env_name="$1"          # "stage" or "prod"
@@ -90,12 +100,16 @@ EOF
         "s3:DeleteBucketWebsite",'
   fi
 
+  # Portable capitalization (macOS ships bash 3.2, which lacks ${var^}).
+  local env_name_cap
+  env_name_cap="$(tr '[:lower:]' '[:upper:]' <<< "${env_name:0:1}")${env_name:1}"
+
   cat > "${perms_file}" <<EOF
 {
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "S3${env_name^}BucketManage",
+      "Sid": "S3${env_name_cap}BucketManage",
       "Effect": "Allow",
       "Action": [
         "s3:GetBucketLocation",
@@ -117,12 +131,20 @@ EOF
 }
 EOF
 
-  echo "==> Creating role ${role_name}"
-  aws iam create-role \
-    --profile "${PROFILE}" \
-    --role-name "${role_name}" \
-    --assume-role-policy-document "file://${trust_file}" \
-    --description "HCP Terraform OIDC role for workspace ${workspace_name}"
+  if aws iam get-role --profile "${PROFILE}" --role-name "${role_name}" >/dev/null 2>&1; then
+    echo "==> Role ${role_name} already exists; updating its trust policy"
+    aws iam update-assume-role-policy \
+      --profile "${PROFILE}" \
+      --role-name "${role_name}" \
+      --policy-document "file://${trust_file}"
+  else
+    echo "==> Creating role ${role_name}"
+    aws iam create-role \
+      --profile "${PROFILE}" \
+      --role-name "${role_name}" \
+      --assume-role-policy-document "file://${trust_file}" \
+      --description "HCP Terraform OIDC role for workspace ${workspace_name}"
+  fi
 
   echo "==> Attaching inline permission policy to ${role_name}"
   aws iam put-role-policy \
@@ -136,7 +158,6 @@ EOF
   echo "    ${role_name} ARN: ${role_arn}"
 }
 
-# Note: bash ${var^} used above capitalizes the first letter (env_name -> Stage/Prod) for the Sid.
 create_role_and_policy "stage" "meltan-ca-stage" "meltan-ca-stage-tfc" "meltan.ca-staging" "true"
 create_role_and_policy "prod" "meltan-ca-prod" "meltan-ca-prod-tfc" "meltan.ca" "false"
 
