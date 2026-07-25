@@ -8,17 +8,17 @@ Terraform for meltan.ca's AWS infrastructure (S3, CloudFront, ACM, Route 53). Co
 - `modules/cdn` — CloudFront distribution + directory-index CloudFront Function; see the module's README
 - `global/` — account-wide, environment-agnostic DNS: the `meltan.ca` hosted zone, MX (Google Workspace mail), TXT (site verification). NS/SOA records are never imported — they're AWS-managed and importing them is a reliable way to create permanent phantom diffs.
 - `environments/prod/` — prod bucket (`oai` mode) + CloudFront (aliases `meltan.ca`/`www.meltan.ca`/`blog.meltan.ca`) + its own ACM cert + Route 53 alias records for those three hostnames
-- `environments/staging/` — staging bucket (`public` mode) + its own CloudFront distribution (alias `stage.meltan.ca`) + its own ACM cert + Route 53 alias record
+- `environments/stage/` — staging bucket (`public` mode, S3 name `meltan.ca-staging`) + its own CloudFront distribution (alias `stage.meltan.ca`) + its own ACM cert + Route 53 alias record. Directory is named `stage` to match the `stage` GitHub Actions environment in `meltan.ca`; the underlying S3 bucket keeps its existing `meltan.ca-staging` name.
 
 ## Workflow
 
-- Terraform Cloud, VCS-driven, one workspace per environment (`meltan-ca-global`, `meltan-ca-prod`, `meltan-ca-staging`), each scoped to its own working directory. Each workspace's trigger patterns should include `modules/**`, so a shared-module change replans everywhere it's used.
+- Terraform Cloud, VCS-driven, one workspace per environment (`meltan-ca-global`, `meltan-ca-prod`, `meltan-ca-stage`), each scoped to its own working directory. Each workspace's trigger patterns should include `modules/**`, so a shared-module change replans everywhere it's used.
 - No `.tfvars` — nothing in this config is sensitive (bucket names, hostnames, cert domains are already public), so config is passed as literal arguments in each environment's `main.tf`. Actual secrets (AWS auth for Terraform Cloud) live in TFC workspace variables or OIDC, never in this repo.
 - State locking and remote state are handled by Terraform Cloud — no S3 backend/DynamoDB lock table needed.
 
 ## Import discipline
 
-Every resource in `global`, `prod`, and staging's bucket already exists in AWS — they were built by hand before this repo existed. **Never apply a new resource block against something that already exists.** The sequence is always: write the resource block matching current reality → `terraform import` (or an `import` block) → `terraform plan` and confirm **zero diff** → only then is `apply` safe. Applying blind risks recreating or replacing live production infrastructure, including the actual site people read.
+Every resource in `global`, `prod`, and `stage`'s bucket already exists in AWS — they were built by hand before this repo existed. **Never apply a new resource block against something that already exists.** The sequence is always: write the resource block matching current reality → `terraform import` (or an `import` block) → `terraform plan` and confirm **zero diff** → only then is `apply` safe. Applying blind risks recreating or replacing live production infrastructure, including the actual site people read.
 
 The `claude-code-readonly` IAM user (used for reading AWS state during Claude sessions) is intentionally never imported into this repo — the credential managing infra shouldn't manage itself.
 
