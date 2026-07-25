@@ -2,7 +2,7 @@ terraform {
   # cloud {
   #   organization = "<your-tfc-org>"
   #   workspaces {
-  #     name = "meltan-ca-staging"
+  #     name = "meltan-ca-stage"
   #   }
   # }
 
