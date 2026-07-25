@@ -25,7 +25,7 @@ The `claude-code-readonly` IAM user (used for reading AWS state during Claude se
 ## AWS credentials
 
 - For AWS reads (during a Claude session), use the dedicated read-only `claude-code-readonly` IAM user via the AWS MCP tool — never the shared `default` AWS CLI profile via a shell command. Melissa's own terminal and a Claude session's shell can both be live on the same machine at once; hitting the same `default` profile/session cache from both sides at the same time has already caused a credential-refresh race (session reporting "refreshed but still expired") that cost real troubleshooting time.
-- Any actual `import`/`plan`/`apply` needs write-capable credentials Claude doesn't have — give Melissa the exact command to run herself, in her own terminal, using her own profile (she keeps a separate named profile, e.g. `terraform-mtan`, rather than `default`, to avoid the same collision).
+- Any actual `import`/`plan`/`apply` needs write-capable credentials Claude doesn't have — give Melissa the exact command to run herself, in her own terminal, using her `default` AWS CLI profile. This is safe from the collision above because Claude never touches `default` via shell — AWS reads always go through the `claude-code-readonly` MCP profile instead.
 
 ## Git workflow
 

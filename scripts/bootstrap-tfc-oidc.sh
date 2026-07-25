@@ -3,8 +3,10 @@
 # Cloud (org "meltan") assume AWS credentials for the meltan-ca-stage and
 # meltan-ca-prod workspaces, scoped to just their own S3 bucket for now.
 #
-# Run this yourself with a write-capable AWS profile, e.g.:
-#   AWS_PROFILE=terraform-mtan ./scripts/bootstrap-tfc-oidc.sh
+# Run this yourself with a write-capable AWS profile (defaults to "default"):
+#   ./scripts/bootstrap-tfc-oidc.sh
+# or, to use a different profile:
+#   AWS_PROFILE=some-other-profile ./scripts/bootstrap-tfc-oidc.sh
 #
 # To reuse for another site, just change the config block below and, if the
 # managed resources differ from modules/static-site-bucket, adjust the
@@ -18,7 +20,7 @@
 set -euo pipefail
 
 # ---- config: change this block to reuse for another site/org/project ----
-PROFILE="${AWS_PROFILE:-terraform-mtan}"
+PROFILE="${AWS_PROFILE:-default}"
 TFC_HOSTNAME="app.terraform.io"
 OIDC_URL="https://${TFC_HOSTNAME}"
 AUDIENCE="aws.workload.identity"
