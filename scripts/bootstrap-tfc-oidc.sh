@@ -92,10 +92,9 @@ create_role_and_policy() {
 }
 EOF
 
-  local website_actions=""
+  local write_website_actions=""
   if [ "${include_website_actions}" = "true" ]; then
-    website_actions='
-        "s3:GetBucketWebsite",
+    write_website_actions='
         "s3:PutBucketWebsite",
         "s3:DeleteBucketWebsite",'
   fi
@@ -104,6 +103,20 @@ EOF
   local env_name_cap
   env_name_cap="$(tr '[:lower:]' '[:upper:]' <<< "${env_name:0:1}")${env_name:1}"
 
+  # The AWS provider's base aws_s3_bucket resource still reads a whole set of
+  # legacy/deprecated sub-attributes on every refresh (acl, versioning,
+  # logging, CORS, replication, request payer, accelerate config, object
+  # lock, website) regardless of which ones this module actually manages as
+  # separate resources -- none of these are set in HCL, so only Get*
+  # (read) access is needed, never Put*/Delete*, and it's needed on both
+  # stage and prod even though only stage separately manages website config.
+  #
+  # s3:ListBucket is also required even though this role never lists
+  # objects: the provider's bucket-existence check calls HeadBucket, which
+  # AWS's IAM model authorizes via s3:ListBucket rather than a dedicated
+  # action. Without it, HeadBucket gets AccessDenied and Terraform reads
+  # that as the bucket having been deleted, producing a false
+  # destroy-and-recreate plan.
   cat > "${perms_file}" <<EOF
 {
   "Version": "2012-10-17",
@@ -112,7 +125,18 @@ EOF
       "Sid": "S3${env_name_cap}BucketManage",
       "Effect": "Allow",
       "Action": [
+        "s3:ListBucket",
         "s3:GetBucketLocation",
+        "s3:GetBucketAcl",
+        "s3:GetBucketVersioning",
+        "s3:GetBucketLogging",
+        "s3:GetBucketCORS",
+        "s3:GetReplicationConfiguration",
+        "s3:GetBucketRequestPayment",
+        "s3:GetAccelerateConfiguration",
+        "s3:GetBucketObjectLockConfiguration",
+        "s3:GetBucketWebsite",
+        "s3:GetLifecycleConfiguration",
         "s3:GetBucketTagging",
         "s3:PutBucketTagging",
         "s3:GetBucketOwnershipControls",
@@ -120,7 +144,7 @@ EOF
         "s3:GetBucketPublicAccessBlock",
         "s3:PutBucketPublicAccessBlock",
         "s3:GetEncryptionConfiguration",
-        "s3:PutEncryptionConfiguration",${website_actions}
+        "s3:PutEncryptionConfiguration",${write_website_actions}
         "s3:GetBucketPolicy",
         "s3:PutBucketPolicy",
         "s3:DeleteBucketPolicy"
