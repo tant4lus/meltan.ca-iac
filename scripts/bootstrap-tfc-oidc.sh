@@ -25,7 +25,7 @@ TFC_HOSTNAME="app.terraform.io"
 OIDC_URL="https://${TFC_HOSTNAME}"
 AUDIENCE="aws.workload.identity"
 TFC_ORG="meltan"
-TFC_PROJECT="meltan.ca"
+TFC_PROJECT="meltan-ca"
 # ---------------------------------------------------------------------------
 
 WORKDIR="$(mktemp -d)"
