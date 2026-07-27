@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Creates the AWS OIDC identity provider + two IAM roles that let HCP Terraform
-# Cloud (org "meltan") assume AWS credentials for the meltan-ca-stage and
-# meltan-ca-prod workspaces, scoped to just their own S3 bucket for now.
+# Creates the AWS OIDC identity provider + IAM roles that let HCP Terraform
+# Cloud (org "meltan") assume AWS credentials for the meltan-ca-stage,
+# meltan-ca-prod, and meltan-ca-global workspaces, each scoped to just the
+# resources it manages (an S3 bucket for stage/prod, the meltan.ca Route 53
+# hosted zone for global).
 #
 # Run this yourself with a write-capable AWS profile (defaults to "default"):
 #   ./scripts/bootstrap-tfc-oidc.sh
@@ -16,6 +18,20 @@
 # don't already exist (existing roles get their trust policy refreshed
 # instead), and put-role-policy always overwrites the permission policy in
 # place.
+#
+# This script only sets up the AWS side (OIDC provider + IAM roles). It does
+# NOT create the HCP Terraform workspace, connect its VCS repo, or set its
+# workspace variables — those still need to happen per workspace, either
+# through the TFC UI or its API/MCP tooling:
+#   1. Create the workspace (org "meltan", project "meltan-ca"), scoped to
+#      its own working directory.
+#   2. Connect VCS from that workspace's own Settings -> Version Control
+#      page (the org-level "Add a VCS Provider" page can show the GitHub App
+#      option as falsely greyed out - use the workspace-level path instead).
+#   3. Set trigger prefixes to the workspace's working directory (plus
+#      "modules" if its config uses a shared module).
+#   4. Set the TFC_AWS_PROVIDER_AUTH=true and TFC_AWS_RUN_ROLE_ARN=<role ARN
+#      from this script's output> workspace variables (category: env).
 
 set -euo pipefail
 
@@ -26,6 +42,7 @@ OIDC_URL="https://${TFC_HOSTNAME}"
 AUDIENCE="aws.workload.identity"
 TFC_ORG="meltan"
 TFC_PROJECT="meltan-ca"
+GLOBAL_HOSTED_ZONE_ID="Z038765422KUTVSCFJIK2"  # meltan.ca
 # ---------------------------------------------------------------------------
 
 WORKDIR="$(mktemp -d)"
@@ -182,11 +199,105 @@ EOF
   echo "    ${role_name} ARN: ${role_arn}"
 }
 
+create_global_role_and_policy() {
+  local workspace_name="meltan-ca-global"
+  local role_name="meltan-ca-global-tfc"
+
+  local trust_file="${WORKDIR}/trust-global.json"
+  local perms_file="${WORKDIR}/perms-global.json"
+
+  cat > "${trust_file}" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Principal": {
+        "Federated": "${OIDC_PROVIDER_ARN}"
+      },
+      "Action": "sts:AssumeRoleWithWebIdentity",
+      "Condition": {
+        "StringEquals": {
+          "${TFC_HOSTNAME}:aud": "${AUDIENCE}"
+        },
+        "StringLike": {
+          "${TFC_HOSTNAME}:sub": "organization:${TFC_ORG}:project:${TFC_PROJECT}:workspace:${workspace_name}:run_phase:*"
+        }
+      }
+    }
+  ]
+}
+EOF
+
+  # Route 53 is a global service: ARNs have no region/account segment. GetChange
+  # is scoped to change/* rather than the hosted zone, since ChangeResourceRecordSets
+  # returns a dynamic change ID that isn't known ahead of time.
+  cat > "${perms_file}" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Route53GlobalZoneManage",
+      "Effect": "Allow",
+      "Action": [
+        "route53:GetHostedZone",
+        "route53:ListTagsForResource",
+        "route53:ChangeTagsForResource",
+        "route53:UpdateHostedZoneComment",
+        "route53:ListResourceRecordSets",
+        "route53:ChangeResourceRecordSets"
+      ],
+      "Resource": "arn:aws:route53:::hostedzone/${GLOBAL_HOSTED_ZONE_ID}"
+    },
+    {
+      "Sid": "Route53ChangeStatus",
+      "Effect": "Allow",
+      "Action": "route53:GetChange",
+      "Resource": "arn:aws:route53:::change/*"
+    }
+  ]
+}
+EOF
+
+  if aws iam get-role --profile "${PROFILE}" --role-name "${role_name}" >/dev/null 2>&1; then
+    echo "==> Role ${role_name} already exists; updating its trust policy"
+    aws iam update-assume-role-policy \
+      --profile "${PROFILE}" \
+      --role-name "${role_name}" \
+      --policy-document "file://${trust_file}"
+  else
+    echo "==> Creating role ${role_name}"
+    aws iam create-role \
+      --profile "${PROFILE}" \
+      --role-name "${role_name}" \
+      --assume-role-policy-document "file://${trust_file}" \
+      --description "HCP Terraform OIDC role for workspace ${workspace_name}"
+  fi
+
+  echo "==> Attaching inline permission policy to ${role_name}"
+  aws iam put-role-policy \
+    --profile "${PROFILE}" \
+    --role-name "${role_name}" \
+    --policy-name "${role_name}-route53" \
+    --policy-document "file://${perms_file}"
+
+  local role_arn
+  role_arn=$(aws iam get-role --profile "${PROFILE}" --role-name "${role_name}" --query 'Role.Arn' --output text)
+  echo "    ${role_name} ARN: ${role_arn}"
+}
+
 create_role_and_policy "stage" "meltan-ca-stage" "meltan-ca-stage-tfc" "meltan.ca-staging" "true"
 create_role_and_policy "prod" "meltan-ca-prod" "meltan-ca-prod-tfc" "meltan.ca" "false"
+create_global_role_and_policy
 
 echo ""
 echo "Done. OIDC provider: ${OIDC_PROVIDER_ARN}"
-echo "Give these role ARNs to Claude for the TFC_AWS_RUN_ROLE_ARN workspace variables:"
+echo "Use these role ARNs for each workspace's TFC_AWS_RUN_ROLE_ARN variable:"
 aws iam get-role --profile "${PROFILE}" --role-name meltan-ca-stage-tfc --query 'Role.Arn' --output text
 aws iam get-role --profile "${PROFILE}" --role-name meltan-ca-prod-tfc --query 'Role.Arn' --output text
+aws iam get-role --profile "${PROFILE}" --role-name meltan-ca-global-tfc --query 'Role.Arn' --output text
+echo ""
+echo "This only set up the AWS side. For any workspace that isn't fully wired up yet,"
+echo "still needed: create the TFC workspace, connect VCS from its own Settings ->"
+echo "Version Control page, set trigger prefixes, and set the TFC_AWS_PROVIDER_AUTH /"
+echo "TFC_AWS_RUN_ROLE_ARN workspace variables (see header comment for details)."
