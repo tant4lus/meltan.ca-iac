@@ -11,6 +11,7 @@ Terraform for [meltan.ca](https://github.com/tant4lus/meltan.ca)'s AWS infrastru
 - `global/` — account-wide, environment-agnostic DNS: the `meltan.ca` hosted zone, MX (mail), TXT (site verification)
 - `environments/prod/` — production bucket + CDN + ACM cert + Route 53 records
 - `environments/stage/` — staging bucket + CDN + ACM cert + Route 53 records
+- `scripts/bootstrap-tfc-oidc.sh` — creates the AWS OIDC provider and the per-workspace IAM roles that let Terraform Cloud authenticate to AWS without static keys
 
 ---
 
@@ -40,9 +41,9 @@ Every resource this repo manages already existed in AWS before the repo did — 
 
 ## Deployment
 
-Terraform Cloud, VCS-driven, one workspace per environment (`meltan-ca-global`, `meltan-ca-prod`, `meltan-ca-stage`), each scoped to its own working directory. State locking and remote state are handled by Terraform Cloud, so there's no S3 backend or DynamoDB lock table to manage.
+Terraform Cloud, VCS-driven, one workspace per environment (`meltan-ca-global`, `meltan-ca-prod`, `meltan-ca-stage`), each scoped to its own working directory, in the `meltan` org / `meltan-ca` project. AWS auth uses OIDC (see `scripts/bootstrap-tfc-oidc.sh`) rather than static keys. State locking and remote state are handled by Terraform Cloud, so there's no S3 backend or DynamoDB lock table to manage.
 
-Not wired up yet — each environment's `terraform.tf` has the `cloud` block commented out until the Terraform Cloud workspaces exist.
+`meltan-ca-stage` and `meltan-ca-prod` are wired up and migrated. `meltan-ca-global` is pending until `global/`'s resource blocks are written.
 
 ---
 

@@ -1,10 +1,10 @@
 terraform {
-  # cloud {
-  #   organization = "<your-tfc-org>"
-  #   workspaces {
-  #     name = "meltan-ca-global"
-  #   }
-  # }
+  cloud {
+    organization = "meltan"
+    workspaces {
+      name = "meltan-ca-global"
+    }
+  }
 
   required_providers {
     aws = {
