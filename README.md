@@ -43,7 +43,7 @@ Every resource this repo manages already existed in AWS before the repo did — 
 
 Terraform Cloud, VCS-driven, one workspace per environment (`meltan-ca-global`, `meltan-ca-prod`, `meltan-ca-stage`), each scoped to its own working directory, in the `meltan` org / `meltan-ca` project. AWS auth uses OIDC (see `scripts/bootstrap-tfc-oidc.sh`) rather than static keys. State locking and remote state are handled by Terraform Cloud, so there's no S3 backend or DynamoDB lock table to manage.
 
-`meltan-ca-stage` and `meltan-ca-prod` are wired up and migrated. `meltan-ca-global` is pending until `global/`'s resource blocks are written.
+All three workspaces (`meltan-ca-global`, `meltan-ca-prod`, `meltan-ca-stage`) are wired up and migrated.
 
 ---
 
