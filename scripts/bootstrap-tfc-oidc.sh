@@ -307,6 +307,7 @@ attach_stage_cdn_policy() {
       "Sid": "Route53StageRecordManage",
       "Effect": "Allow",
       "Action": [
+        "route53:GetHostedZone",
         "route53:ListResourceRecordSets",
         "route53:ChangeResourceRecordSets"
       ],
