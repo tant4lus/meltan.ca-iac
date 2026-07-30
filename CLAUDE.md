@@ -8,7 +8,7 @@ Terraform for meltan.ca's AWS infrastructure (S3, CloudFront, ACM, Route 53). Co
 - `modules/cdn` — CloudFront distribution + directory-index CloudFront Function; see the module's README
 - `global/` — account-wide, environment-agnostic DNS: the `meltan.ca` hosted zone, MX (Google Workspace mail), TXT (site verification). NS/SOA records are never imported — they're AWS-managed and importing them is a reliable way to create permanent phantom diffs.
 - `environments/prod/` — prod bucket (`oai` mode) + CloudFront (aliases `meltan.ca`/`www.meltan.ca`/`blog.meltan.ca`) + its own ACM cert + Route 53 alias records for those three hostnames
-- `environments/stage/` — staging bucket (`public` mode, S3 name `meltan.ca-staging`) + its own CloudFront distribution (alias `stage.meltan.ca`) + its own ACM cert + Route 53 alias record. Directory is named `stage` to match the `stage` GitHub Actions environment in `meltan.ca`; the underlying S3 bucket keeps its existing `meltan.ca-staging` name.
+- `environments/stage/` — staging bucket (`oai` mode, S3 name `meltan.ca-staging`) + its own CloudFront distribution (alias `stage.meltan.ca`) + its own ACM cert + Route 53 alias record — same shape as prod, via `modules/cdn`, converted from the original plain public/S3-website setup so stage and prod don't silently diverge. Directory is named `stage` to match the `stage` GitHub Actions environment in `meltan.ca`; the underlying S3 bucket keeps its existing `meltan.ca-staging` name.
 
 ## Workflow
 
@@ -36,6 +36,8 @@ The `claude-code-readonly` IAM user (used for reading AWS state during Claude se
 ## Git workflow
 
 Always create a branch and open a PR — never commit directly to `main`, even for a brand-new repo's very first commit or when there's no CI configured yet to preview against. The review discipline itself is the point, not just whatever staging-preview side effect happens to come with it in `meltan.ca`.
+
+The repo has "Automatically delete head branches" enabled, so merging a PR cleans up the branch on the remote — but not the matching local branch, and `git branch --merged` can't be trusted to find it because most merges here are squash merges, which break commit-ancestry-based detection. After confirming a PR merged (`gh pr view <n> --json state,mergedAt` — don't just assume from context, verify), delete the local branch explicitly (`git branch -D <branch>`) and run `git fetch origin --prune` to clear stale remote-tracking refs. Do this promptly: pushing a new commit to a branch whose PR already merged silently recreates an orphaned branch under the same name that will never actually land in `main` — exactly what happened with `feat/prod-cdn-import` (fixed in PR #20).
 
 ## Related
 
