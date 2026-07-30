@@ -19,8 +19,20 @@ variable "acm_certificate_arn" {
 }
 
 variable "comment" {
-  description = "Comment applied to the distribution and its Origin Access Identity."
+  description = "Comment applied to the distribution and, unless oai_comment is set, its Origin Access Identity too."
   type        = string
+}
+
+variable "oai_comment" {
+  description = "Comment applied to the Origin Access Identity. Defaults to var.comment; only needed to override when matching a pre-existing OAI's comment on import."
+  type        = string
+  default     = null
+}
+
+variable "default_root_object" {
+  description = "Object CloudFront returns for the distribution's root URL (\"/\"). Usually redundant with the directory-index CloudFront Function's own handling of \"/\", but kept as a plain variable so an import can match whatever's already live."
+  type        = string
+  default     = null
 }
 
 variable "price_class" {

@@ -1,5 +1,5 @@
 resource "aws_cloudfront_origin_access_identity" "this" {
-  comment = var.comment
+  comment = coalesce(var.oai_comment, var.comment)
 }
 
 # Viewer-request function that appends index.html for directory-style
@@ -24,15 +24,25 @@ resource "aws_cloudfront_function" "append_index_html" {
         return request;
     }
   EOT
+
+  # publish is a write-only directive (AWS doesn't return it as a readable
+  # attribute), so it always shows a phantom diff right after import
+  # regardless of what's set here. Applying it is harmless -- it just
+  # re-publishes code that's already live -- but there's no HCL value that
+  # makes the diff go away on its own, so it's suppressed explicitly.
+  lifecycle {
+    ignore_changes = [publish]
+  }
 }
 
 resource "aws_cloudfront_distribution" "this" {
-  enabled         = true
-  is_ipv6_enabled = true
-  comment         = var.comment
-  aliases         = var.aliases
-  price_class     = var.price_class
-  tags            = var.tags
+  enabled             = true
+  is_ipv6_enabled     = true
+  comment             = var.comment
+  aliases             = var.aliases
+  price_class         = var.price_class
+  default_root_object = var.default_root_object
+  tags                = var.tags
 
   origin {
     domain_name = var.origin_domain_name
