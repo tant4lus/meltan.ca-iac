@@ -45,6 +45,8 @@ TFC_PROJECT="meltan-ca"
 GLOBAL_HOSTED_ZONE_ID="Z038765422KUTVSCFJIK2"  # meltan.ca
 # ---------------------------------------------------------------------------
 
+ACCOUNT_ID="$(aws sts get-caller-identity --profile "${PROFILE}" --query Account --output text)"
+
 WORKDIR="$(mktemp -d)"
 echo "Writing policy documents to: ${WORKDIR}"
 
@@ -286,7 +288,103 @@ EOF
   echo "    ${role_name} ARN: ${role_arn}"
 }
 
+attach_stage_cdn_policy() {
+  local role_name="meltan-ca-stage-tfc"
+  local perms_file="${WORKDIR}/perms-stage-cdn.json"
+
+  # stage.meltan.ca's own CloudFront distribution + ACM cert + Route 53
+  # record, per modules/cdn. Route 53 record management is scoped to the
+  # meltan.ca zone (not ListHostedZones — see the comment in
+  # environments/stage/main.tf for why that's looked up by hardcoded ID
+  # instead). ACM/CloudFront resource IDs don't exist yet at policy-write
+  # time, so those are scoped to account/region wildcards instead of exact
+  # ARNs.
+  cat > "${perms_file}" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Route53StageRecordManage",
+      "Effect": "Allow",
+      "Action": [
+        "route53:ListResourceRecordSets",
+        "route53:ChangeResourceRecordSets"
+      ],
+      "Resource": "arn:aws:route53:::hostedzone/${GLOBAL_HOSTED_ZONE_ID}"
+    },
+    {
+      "Sid": "Route53ChangeStatus",
+      "Effect": "Allow",
+      "Action": "route53:GetChange",
+      "Resource": "arn:aws:route53:::change/*"
+    },
+    {
+      "Sid": "AcmStageCertManage",
+      "Effect": "Allow",
+      "Action": [
+        "acm:RequestCertificate",
+        "acm:DescribeCertificate",
+        "acm:DeleteCertificate",
+        "acm:AddTagsToCertificate",
+        "acm:ListTagsForCertificate",
+        "acm:RemoveTagsFromCertificate"
+      ],
+      "Resource": "arn:aws:acm:us-east-1:${ACCOUNT_ID}:certificate/*"
+    },
+    {
+      "Sid": "CloudFrontStageOaiManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateCloudFrontOriginAccessIdentity",
+        "cloudfront:GetCloudFrontOriginAccessIdentity",
+        "cloudfront:GetCloudFrontOriginAccessIdentityConfig",
+        "cloudfront:UpdateCloudFrontOriginAccessIdentity",
+        "cloudfront:DeleteCloudFrontOriginAccessIdentity"
+      ],
+      "Resource": "arn:aws:cloudfront::${ACCOUNT_ID}:origin-access-identity/*"
+    },
+    {
+      "Sid": "CloudFrontStageFunctionManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateFunction",
+        "cloudfront:DescribeFunction",
+        "cloudfront:GetFunction",
+        "cloudfront:UpdateFunction",
+        "cloudfront:DeleteFunction",
+        "cloudfront:PublishFunction"
+      ],
+      "Resource": "arn:aws:cloudfront::${ACCOUNT_ID}:function/*"
+    },
+    {
+      "Sid": "CloudFrontStageDistributionManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:CreateDistribution",
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:DeleteDistribution",
+        "cloudfront:TagResource",
+        "cloudfront:UntagResource",
+        "cloudfront:ListTagsForResource"
+      ],
+      "Resource": "arn:aws:cloudfront::${ACCOUNT_ID}:distribution/*"
+    }
+  ]
+}
+EOF
+
+  echo "==> Attaching inline CDN permission policy to ${role_name}"
+  aws iam put-role-policy \
+    --profile "${PROFILE}" \
+    --role-name "${role_name}" \
+    --policy-name "${role_name}-cdn" \
+    --policy-document "file://${perms_file}"
+}
+
 create_role_and_policy "stage" "meltan-ca-stage" "meltan-ca-stage-tfc" "meltan.ca-staging" "true"
+attach_stage_cdn_policy
 create_role_and_policy "prod" "meltan-ca-prod" "meltan-ca-prod-tfc" "meltan.ca" "false"
 create_global_role_and_policy
 
