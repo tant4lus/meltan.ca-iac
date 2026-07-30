@@ -63,6 +63,7 @@ module "cdn" {
   aliases             = ["stage.meltan.ca"]
   acm_certificate_arn = aws_acm_certificate_validation.this.certificate_arn
   comment             = "stage.meltan.ca"
+  default_root_object = "index.html"
 
   tags = {
     company = "personal"
