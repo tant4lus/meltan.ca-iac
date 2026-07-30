@@ -384,9 +384,103 @@ EOF
     --policy-document "file://${perms_file}"
 }
 
+attach_prod_cdn_policy() {
+  local role_name="meltan-ca-prod-tfc"
+  local perms_file="${WORKDIR}/perms-prod-cdn.json"
+
+  # meltan.ca's CDN resources all predate this repo (console-created in
+  # 2022) and are only ever imported, never created fresh by Terraform, so
+  # unlike stage's policy this deliberately omits every Create*/Delete*
+  # action -- resource IDs are already known and scoped exactly, and if a
+  # bad HCL change ever made a plan want to replace one of these, the
+  # intent is for apply to fail on AccessDenied rather than silently
+  # destroying and recreating live production infrastructure.
+  local distribution_arn="arn:aws:cloudfront::${ACCOUNT_ID}:distribution/E2ZSINZGTN4ML"
+  local oai_arn="arn:aws:cloudfront::${ACCOUNT_ID}:origin-access-identity/E3OPL65VOOE078"
+  local function_arn="arn:aws:cloudfront::${ACCOUNT_ID}:function/append-index-html"
+  local cert_arn="arn:aws:acm:us-east-1:${ACCOUNT_ID}:certificate/c82aba43-5c76-4e56-9f80-e7a78e56b108"
+
+  cat > "${perms_file}" <<EOF
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "Route53ProdRecordManage",
+      "Effect": "Allow",
+      "Action": [
+        "route53:GetHostedZone",
+        "route53:ListResourceRecordSets",
+        "route53:ChangeResourceRecordSets"
+      ],
+      "Resource": "arn:aws:route53:::hostedzone/${GLOBAL_HOSTED_ZONE_ID}"
+    },
+    {
+      "Sid": "Route53ChangeStatus",
+      "Effect": "Allow",
+      "Action": "route53:GetChange",
+      "Resource": "arn:aws:route53:::change/*"
+    },
+    {
+      "Sid": "AcmProdCertRead",
+      "Effect": "Allow",
+      "Action": [
+        "acm:DescribeCertificate",
+        "acm:ListTagsForCertificate",
+        "acm:AddTagsToCertificate",
+        "acm:RemoveTagsFromCertificate"
+      ],
+      "Resource": "${cert_arn}"
+    },
+    {
+      "Sid": "CloudFrontProdOaiManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:GetCloudFrontOriginAccessIdentity",
+        "cloudfront:GetCloudFrontOriginAccessIdentityConfig",
+        "cloudfront:UpdateCloudFrontOriginAccessIdentity"
+      ],
+      "Resource": "${oai_arn}"
+    },
+    {
+      "Sid": "CloudFrontProdFunctionManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:DescribeFunction",
+        "cloudfront:GetFunction",
+        "cloudfront:UpdateFunction",
+        "cloudfront:PublishFunction"
+      ],
+      "Resource": "${function_arn}"
+    },
+    {
+      "Sid": "CloudFrontProdDistributionManage",
+      "Effect": "Allow",
+      "Action": [
+        "cloudfront:GetDistribution",
+        "cloudfront:GetDistributionConfig",
+        "cloudfront:UpdateDistribution",
+        "cloudfront:TagResource",
+        "cloudfront:UntagResource",
+        "cloudfront:ListTagsForResource"
+      ],
+      "Resource": "${distribution_arn}"
+    }
+  ]
+}
+EOF
+
+  echo "==> Attaching inline CDN permission policy to ${role_name}"
+  aws iam put-role-policy \
+    --profile "${PROFILE}" \
+    --role-name "${role_name}" \
+    --policy-name "${role_name}-cdn" \
+    --policy-document "file://${perms_file}"
+}
+
 create_role_and_policy "stage" "meltan-ca-stage" "meltan-ca-stage-tfc" "meltan.ca-staging" "true"
 attach_stage_cdn_policy
 create_role_and_policy "prod" "meltan-ca-prod" "meltan-ca-prod-tfc" "meltan.ca" "false"
+attach_prod_cdn_policy
 create_global_role_and_policy
 
 echo ""
