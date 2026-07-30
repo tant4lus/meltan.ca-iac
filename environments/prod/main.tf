@@ -14,7 +14,8 @@ module "bucket" {
   oai_iam_arn = module.cdn.oai_iam_arn
 
   tags = {
-    company = "personal"
+    company     = "personal"
+    application = "meltan-ca-blog"
   }
 }
 
@@ -31,7 +32,8 @@ resource "aws_acm_certificate" "this" {
   }
 
   tags = {
-    company = "personal"
+    company     = "personal"
+    application = "meltan-ca-blog"
   }
 
   lifecycle {
@@ -55,7 +57,7 @@ module "cdn" {
 
   tags = {
     company     = "personal"
-    application = "blog"
+    application = "meltan-ca-blog"
   }
 }
 

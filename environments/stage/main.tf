@@ -13,7 +13,8 @@ resource "aws_acm_certificate" "this" {
   validation_method = "DNS"
 
   tags = {
-    company = "personal"
+    company     = "personal"
+    application = "meltan-ca-blog"
   }
 
   lifecycle {
@@ -51,7 +52,8 @@ module "bucket" {
   oai_iam_arn = module.cdn.oai_iam_arn
 
   tags = {
-    company = "personal"
+    company     = "personal"
+    application = "meltan-ca-blog"
   }
 }
 
@@ -66,7 +68,8 @@ module "cdn" {
   default_root_object = "index.html"
 
   tags = {
-    company = "personal"
+    company     = "personal"
+    application = "meltan-ca-blog"
   }
 }
 

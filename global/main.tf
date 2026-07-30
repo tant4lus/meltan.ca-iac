@@ -3,7 +3,8 @@ resource "aws_route53_zone" "this" {
   comment = ""
 
   tags = {
-    company = "personal"
+    company     = "personal"
+    application = "meltan-ca-blog"
   }
 }
 
